@@ -7,6 +7,16 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+readme = "README.md"
+keywords = ["cargo", "target", "reflink", "hardlink", "build-cache"]
+categories = [
+    "development-tools::build-utils",
+    "filesystem",
+    "caching",
+]
+# Where the API of this crate is read. Derived from the crate name, which is
+# what docs.rs builds from — not a choice about where anything is hosted.
+documentation = "https://docs.rs/shared-target-core"
 
 [dependencies]
 filetime.workspace = true

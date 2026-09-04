@@ -9,6 +9,10 @@ authors = ["Yutaka Nishimura"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ynishi/cargo-shared-target"
 homepage = "https://github.com/ynishi/cargo-shared-target"
+# `readme` is deliberately not inherited from here. An inherited path is
+# resolved against the workspace root and then handed to the member as
+# `../../README.md` — outside its own package, which Cargo warns about. Each
+# member names its own copy, which is a symlink to this one.
 
 [workspace.dependencies]
 shared-target-core = { path = "crates/shared-target-core", version = "0.1.0" }
