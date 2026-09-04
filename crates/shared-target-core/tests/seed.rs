@@ -23,6 +23,9 @@ fn fixture(root: &Path) -> std::io::Result<()> {
     fs::create_dir_all(debug.join("incremental/a-hash"))?;
     fs::create_dir_all(debug.join("build/pkg-out"))?;
 
+    // Cargo's build lock lives in the profile directory, and the seeding takes
+    // a share of it, so every fixture carries one.
+    fs::write(debug.join(".cargo-lock"), b"")?;
     fs::write(debug.join("deps/libbig-1234.rlib"), vec![0u8; BIG])?;
     fs::write(debug.join("deps/small-5678.d"), vec![0u8; SMALL])?;
     fs::write(debug.join("incremental/a-hash/blob.bin"), vec![0u8; BIG])?;
@@ -322,6 +325,74 @@ fn a_destination_reaching_the_source_through_a_symlink_is_refused() {
         matches!(attempt, Err(Error::DestinationInsideSource { .. })),
         "got {attempt:?}"
     );
+}
+
+/// Reading a target directory a build is writing to captures the artifact and
+/// the fingerprint at different moments, and the tree that results reads as
+/// fresh while being torn. Cargo says a build is running by holding this lock,
+/// so the seeding refuses while it is held.
+#[test]
+#[cfg(unix)]
+fn a_running_build_stops_the_seeding() {
+    use rustix::fs::{FlockOperation, flock};
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let src = dir.path().join("src-target");
+    fixture(&src).expect("the fixture");
+
+    // What a build in that tree looks like from the outside.
+    let build = fs::File::open(src.join("debug/.cargo-lock")).expect("the lock file");
+    flock(&build, FlockOperation::NonBlockingLockExclusive).expect("holding the lock");
+
+    let attempt = seed(&Options::new(&src, dir.path().join("wt/target")));
+    assert!(
+        matches!(attempt, Err(Error::SourceBusy { .. })),
+        "got {attempt:?}"
+    );
+
+    // And once it finishes, the same call goes through.
+    drop(build);
+    let report = seed(&Options::new(&src, dir.path().join("wt/target"))).expect("the seeding");
+    assert_eq!(report.build_locks_held, 1);
+}
+
+/// A build given a target triple nests its profile one level deeper, and the
+/// lock goes with it. Looked for in both places, or a cross-compiled tree would
+/// be read with nothing held and nothing said.
+#[test]
+#[cfg(unix)]
+fn the_lock_of_a_cross_compiled_profile_is_found_too() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let src = dir.path().join("src-target");
+    fixture(&src).expect("the fixture");
+
+    let triple = src.join("x86_64-unknown-linux-gnu/debug");
+    fs::create_dir_all(&triple).expect("the cross-compiled profile");
+    fs::write(triple.join(".cargo-lock"), b"").expect("its lock");
+
+    let report = seed(&Options::new(&src, dir.path().join("wt/target"))).expect("the seeding");
+    assert_eq!(
+        report.build_locks_held, 2,
+        "both the host profile's lock and the cross-compiled one should be held"
+    );
+}
+
+/// Held for the reading and let go afterwards. A lock still held when the call
+/// returns is one that blocks the next build for as long as this process lives.
+#[test]
+#[cfg(unix)]
+fn the_locks_do_not_outlive_the_seeding() {
+    use rustix::fs::{FlockOperation, flock};
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let src = dir.path().join("src-target");
+    fixture(&src).expect("the fixture");
+
+    seed(&Options::new(&src, dir.path().join("wt/target"))).expect("the seeding");
+
+    let after = fs::File::open(src.join("debug/.cargo-lock")).expect("the lock file");
+    flock(&after, FlockOperation::NonBlockingLockExclusive)
+        .expect("a build should be able to start again");
 }
 
 /// Setting a mode and then a time on the file it was just applied to is an

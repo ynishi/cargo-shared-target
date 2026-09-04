@@ -7,7 +7,7 @@ use filetime::FileTime;
 use walkdir::WalkDir;
 
 use crate::error::{Error, Result};
-use crate::probe;
+use crate::{lock, probe};
 
 /// Files this size and above under a `deps/` directory keep a shared inode
 /// rather than a copy of their own.
@@ -63,6 +63,10 @@ pub struct Report {
     pub incremental_dropped: u64,
     pub shared_bytes: u64,
     pub copied_bytes: u64,
+    /// How many of Cargo's build locks were held while the source was read.
+    /// Zero is a fact about this run and not a guarantee about it — see
+    /// [`crate::lock`].
+    pub build_locks_held: usize,
 }
 
 /// Builds `dest` from `src`, sharing whatever the filesystem under `dest` lets
@@ -120,10 +124,17 @@ pub fn seed(opts: &Options) -> Result<Report> {
         same_filesystem(&opts.src, &staging_parent)?;
     }
 
+    // Held until the reading is done. Taken after the probe, which writes only
+    // into the staging parent and reads one file that a build would not be
+    // rewriting under it.
+    let locks = lock::acquire(&opts.src)?;
+
     // A failure leaves the staged tree where it is. It is named so that nothing
     // reads it, and deleting on the way out of an error is how the one run that
     // could have been inspected stops being inspectable.
     let mut report = fill(&opts.src, &staging, strategy, opts.min_shared_size)?;
+    report.build_locks_held = locks.held().len();
+    drop(locks);
 
     fs::rename(&staging, &opts.dest)
         .map_err(Error::io("renaming the staged tree to", &opts.dest))?;
@@ -144,6 +155,7 @@ fn fill(src: &Path, staging: &Path, strategy: Strategy, min_shared_size: u64) ->
         incremental_dropped: 0,
         shared_bytes: 0,
         copied_bytes: 0,
+        build_locks_held: 0,
     };
 
     // Dropped rather than carried when carrying it would mean real bytes.

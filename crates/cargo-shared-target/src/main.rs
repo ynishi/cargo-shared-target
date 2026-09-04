@@ -84,6 +84,13 @@ fn describe(report: &Report) {
         bytes(report.copied_bytes)
     );
     println!("  dirs    {:>9}", report.dirs);
+    // Said either way. Zero is what a target directory nothing has built in
+    // looks like, and it is also what a Cargo that has moved its lock looks
+    // like; the number is reported so the difference is the reader's to make.
+    println!(
+        "  locks   {:>9} of Cargo's build locks held while reading",
+        report.build_locks_held
+    );
     if report.symlinks > 0 {
         println!("  links   {:>9}", report.symlinks);
     }

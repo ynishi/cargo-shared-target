@@ -88,13 +88,31 @@ way of your own gates:
                         --staging ../{{slug}}/.staging/target.partial
 ```
 
-## What it does not do
+## While a build is running
 
-It takes no build lock on the source. Cargo coordinates builds through a lock in
-the target directory, and this does not participate: seeding a tree that a build
-is writing to can capture a fingerprint written after the artifact it describes,
-and the resulting tree reads as fresh while being torn. Seed between builds, not
-during one.
+It isn't. Cargo holds a lock in each profile directory for the length of a
+build, and this takes a share of every one it finds before reading anything —
+so a seeding that overlaps a build is refused rather than performed:
+
+```
+error: a build is running here: /path/target/debug/.cargo-lock is locked; seed between builds
+```
+
+Refused rather than waited on: a caller told a build is running can decide, and
+one left blocking on a build with forty crates to go cannot. The share is
+released as soon as the reading is done, well before the rename.
+
+What is being taken part in here is Cargo's own arrangement, not a published
+one — the path and the mechanism are its internals. So the count of locks held
+is reported rather than assumed:
+
+```
+  locks           2 of Cargo's build locks held while reading
+```
+
+Zero is what a target directory nothing has built in looks like. It is also what
+a Cargo that has moved its lock would look like. The number is printed so the
+difference stays the reader's to make.
 
 ## Layout
 

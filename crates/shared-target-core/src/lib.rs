@@ -14,6 +14,7 @@
 //! not a special one.
 
 mod error;
+pub mod lock;
 mod metadata;
 mod probe;
 mod seed;

@@ -16,6 +16,9 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 filetime = "0.2"
 reflink-copy = "0.1"
+# Already in the tree by way of tempfile; the `fs` feature is what carries
+# `flock`, which is how this participates in Cargo's own build lock.
+rustix = { version = "1", features = ["fs"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"

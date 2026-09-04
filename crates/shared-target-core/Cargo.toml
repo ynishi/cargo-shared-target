@@ -11,6 +11,7 @@ homepage.workspace = true
 [dependencies]
 filetime.workspace = true
 reflink-copy.workspace = true
+rustix.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
@@ -19,5 +20,6 @@ walkdir.workspace = true
 # A crate's own dependencies are not in scope for its integration tests, and
 # the fixture has to set the mtimes it then asserts about.
 filetime.workspace = true
+rustix.workspace = true
 tempfile.workspace = true
 walkdir.workspace = true

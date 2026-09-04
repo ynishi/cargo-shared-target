@@ -11,6 +11,12 @@ pub enum Error {
     #[error("a previous run left a partial tree at {0}; remove it and run again")]
     StagingExists(PathBuf),
 
+    /// Reading a target directory a build is writing to yields a tree whose
+    /// fingerprints and artifacts were captured at different moments — and
+    /// Cargo reads that tree as fresh. Refused while the build holds its lock.
+    #[error("a build is running here: {path} is locked; seed between builds")]
+    SourceBusy { path: PathBuf },
+
     #[error("{0} has no parent directory to be created in")]
     DestinationHasNoParent(PathBuf),
 
