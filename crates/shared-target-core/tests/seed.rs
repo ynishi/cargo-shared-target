@@ -79,7 +79,12 @@ fn a_large_artifact_under_deps_is_shared_rather_than_copied() {
     // Under either strategy this file costs no second copy: one shares the
     // inode outright, the other shares the blocks beneath two of them.
     match report.strategy {
-        Strategy::LinkAndCopy => assert_eq!(inode(&from), inode(&to), "should be one inode"),
+        Strategy::LinkAndCopy => {
+            assert_eq!(inode(&from), inode(&to), "should be one inode");
+            // This strategy shares what it is safe to share and nothing else,
+            // so the one artifact above accounts for all of it.
+            assert_eq!(report.shared_bytes, BIG as u64);
+        }
         Strategy::Clone => {
             assert_ne!(
                 inode(&from),
@@ -91,9 +96,16 @@ fn a_large_artifact_under_deps_is_shared_rather_than_copied() {
                 BIG,
                 "the clone is not the file"
             );
+            // Here every file is shared, so the total is the whole tree rather
+            // than this one artifact — and nothing was copied at all.
+            assert!(
+                report.shared_bytes >= BIG as u64,
+                "{} shared, less than the one artifact",
+                report.shared_bytes
+            );
+            assert_eq!(report.copied, 0, "cloning copies nothing");
         }
     }
-    assert_eq!(report.shared_bytes, BIG as u64);
 }
 
 /// The arrangement a device-number check gets backwards.

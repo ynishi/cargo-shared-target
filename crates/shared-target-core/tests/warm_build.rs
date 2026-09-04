@@ -59,6 +59,11 @@ fn build_into(project: &Path, target: &Path) -> String {
         // build under test back at this workspace.
         .env_remove("CARGO_MANIFEST_DIR")
         .env("CARGO_TARGET_DIR", target)
+        // What this output is read for is the `Compiling` lines, and CI sets
+        // `CARGO_TERM_COLOR=always` — which wraps each one in escape codes and
+        // puts a reset between the word and the space after it, so every match
+        // silently stops matching and the build looks like it compiled nothing.
+        .env("CARGO_TERM_COLOR", "never")
         .current_dir(project)
         .output()
         .expect("cargo should be runnable from a test Cargo itself started");
