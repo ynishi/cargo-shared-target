@@ -1,0 +1,14 @@
+[package]
+name = "cargo-shared-target"
+description = "Seed a new Cargo target directory from an existing one, sharing storage where the filesystem allows it"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+shared-target-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true

@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/shared-target-core", "crates/cargo-shared-target"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Yutaka Nishimura"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ynishi/cargo-shared-target"
+homepage = "https://github.com/ynishi/cargo-shared-target"
+
+[workspace.dependencies]
+shared-target-core = { path = "crates/shared-target-core", version = "0.1.0" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+filetime = "0.2"
+reflink-copy = "0.1"
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+walkdir = "2"

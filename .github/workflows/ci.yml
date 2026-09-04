@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The suite decides what to do by asking the filesystem, so running it once
+  # answers for one filesystem. Each job here makes a different one out of a
+  # loopback image, points TMPDIR at it, and states which branch the run is
+  # supposed to take — a job that takes the other one fails instead of quietly
+  # testing the half it was not meant to.
+  test:
+    name: ${{ matrix.filesystem }} (${{ matrix.strategy }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # No reflink, so: hard links for the large write-once artifacts,
+          # copies for everything else, and incremental/ dropped.
+          - filesystem: ext4
+            strategy: link-and-copy
+          # Reflink, and two subvolumes — which have different device numbers
+          # and clone between each other anyway. That pair is the case a
+          # same-device check gets backwards, and there is no way to build it
+          # from inside a test.
+          - filesystem: btrfs
+            strategy: clone
+            subvolumes: true
+          # Reflink only when mkfs was told so; the default since xfsprogs 5.1.
+          - filesystem: xfs
+            strategy: clone
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build a ${{ matrix.filesystem }} to run on
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y btrfs-progs xfsprogs
+          truncate -s 4G /tmp/subject.img
+          case "${{ matrix.filesystem }}" in
+            ext4)  mkfs.ext4  -q          /tmp/subject.img ;;
+            btrfs) mkfs.btrfs -q          /tmp/subject.img ;;
+            xfs)   mkfs.xfs   -q -m reflink=1 /tmp/subject.img ;;
+          esac
+          sudo mkdir -p /mnt/subject
+          sudo mount -o loop /tmp/subject.img /mnt/subject
+          sudo chown "$(id -u):$(id -g)" /mnt/subject
+
+      - name: Cut two subvolumes
+        if: matrix.subvolumes
+        run: |
+          set -euo pipefail
+          sudo btrfs subvolume create /mnt/subject/here
+          sudo btrfs subvolume create /mnt/subject/elsewhere
+          sudo chown "$(id -u):$(id -g)" /mnt/subject/here /mnt/subject/elsewhere
+          echo "CARGO_SHARED_TARGET_OTHER_DEVICE_DIR=/mnt/subject/elsewhere" >> "$GITHUB_ENV"
+          echo "TMPDIR=/mnt/subject/here" >> "$GITHUB_ENV"
+
+      - name: Confirm the filesystem is the one this job asked for
+        run: |
+          set -euo pipefail
+          findmnt -no FSTYPE /mnt/subject | grep -qx '${{ matrix.filesystem }}'
+          [ -d "${TMPDIR:-/mnt/subject}" ]
+
+      - name: Test
+        env:
+          # Read by tests/common/mod.rs. Without it a job on the wrong
+          # filesystem passes while proving nothing.
+          CARGO_SHARED_TARGET_EXPECT_STRATEGY: ${{ matrix.strategy }}
+          TMPDIR: ${{ env.TMPDIR || '/mnt/subject' }}
+        run: cargo test --workspace
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
