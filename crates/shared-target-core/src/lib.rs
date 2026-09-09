@@ -17,10 +17,12 @@ mod error;
 pub mod lock;
 mod metadata;
 mod probe;
+pub mod prune;
 mod seed;
+pub mod staging;
 
 pub use error::{Error, Result};
 pub use metadata::workspace_target_dir;
 pub use probe::supports_reflink;
 
-pub use seed::{DEFAULT_MIN_SHARED_SIZE, Options, Report, Strategy, seed};
+pub use seed::{DEFAULT_MIN_SHARED_SIZE, Options, Report, Strategy, seed, staging_path};

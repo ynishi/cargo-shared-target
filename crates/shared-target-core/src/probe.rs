@@ -6,6 +6,11 @@ use walkdir::WalkDir;
 
 use crate::error::{Error, Result};
 
+/// Where the question is asked. Cleared on the way out, and named here because
+/// clearing it is best-effort — a run that dies mid-probe leaves it, and
+/// [`crate::prune`] is what picks it up.
+pub const PROBE_DIR: &str = ".cargo-shared-target-probe";
+
 /// Whether the blocks of files in `src` can be cloned into `at` rather than
 /// copied.
 ///
@@ -19,7 +24,7 @@ use crate::error::{Error, Result};
 /// somewhere else: btrfs clones freely between its subvolumes and not at all
 /// across a mount point, and those two look identical from `at` alone.
 pub fn supports_reflink(src: &Path, at: &Path) -> Result<bool> {
-    let probe = at.join(".cargo-shared-target-probe");
+    let probe = at.join(PROBE_DIR);
     fs::create_dir_all(&probe).map_err(Error::io("creating a probe directory at", &probe))?;
 
     let answer = probe_inside(src, &probe);
