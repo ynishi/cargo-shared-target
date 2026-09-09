@@ -41,7 +41,8 @@ The tree is built under `<dest>.partial` and renamed into place only once it is
 whole. A half-built `target/` is worse than none: the fingerprints that landed
 say fresh about artifacts that did not. Under the staging name it is not a
 `target/` at all, so Cargo never reads it, and a run that fails leaves something
-inert rather than something wrong.
+inert rather than something wrong — and findable, which is the other half of it:
+see [When a run does not finish](#when-a-run-does-not-finish).
 
 ## Install
 
@@ -63,6 +64,10 @@ asked of `cargo metadata` rather than assumed to be `./target`.
 --dest DIR             target directory to create; must not already exist
 --staging DIR          build here before renaming into place
 --min-shared-size N    share files under deps/ at least this large (default 1 MiB)
+
+--prune DIR            instead of seeding: report the trees left under DIR by
+                       runs that did not finish
+--remove               remove what --prune found
 ```
 
 Where the new tree goes is the caller's business. A git worktree is one answer
@@ -113,6 +118,59 @@ is reported rather than assumed:
 Zero is what a target directory nothing has built in looks like. It is also what
 a Cargo that has moved its lock would look like. The number is printed so the
 difference stays the reader's to make.
+
+## When a run does not finish
+
+The staged tree stays where it is. That is deliberate — a run that could have
+been looked at stops being one the moment its evidence is deleted on the way out
+— but the tree is the same tens of gigabytes the whole exercise is about, and a
+run that was killed rather than refused printed nothing at all. So it is not
+left anonymous: it carries a marker naming what it was seeding, where it was
+going, and which process was writing it.
+
+```bash
+cargo shared-target --prune ~/projects
+```
+
+```
+staged tree  /home/you/projects/thing/workspace/target.partial
+  from       /home/you/projects/thing/target
+  for        /home/you/projects/thing/workspace/target
+  written    by pid 48213 5 days ago, cargo-shared-target 0.1.0
+  holds      124018 files  46.0 GiB
+  shared     40.1 GiB of that is a second name for a file another tree also has
+  frees      at most 5.9 GiB
+  status     left alone; pass --remove to take it
+```
+
+Nothing is removed until `--remove` says so.
+
+The marker is looked for rather than the name. `--staging` puts the tree
+anywhere and `.partial` is a default rather than a promise, so a search by name
+finds whichever trees happened to keep it. The search does not descend into a
+directory Cargo has tagged as a target, which is what keeps it from listing
+hundreds of thousands of entries — a staged tree put inside one is the case this
+does not find.
+
+**`du` is not the answer to how much room this gets back.** Where the filesystem
+cannot clone blocks, the artifacts under `deps/` are one inode under two names:
+`du` on the staged tree counts every byte of them, and removing it frees none,
+because what goes is a name and not the storage. What is printed above is the
+part that has no other name. Where the filesystem *can* clone blocks, every file
+has a name of its own and shares its storage underneath, so that figure reads as
+the whole tree and is an upper bound — the tree cost little to make and gives
+little back.
+
+A tree something is still writing is left alone. That is answered by taking the
+marker's lock rather than by reading a pid out of it: a process that is killed
+releases its locks, and one that recorded that it was running did not.
+
+The last thing a finished run does is take its marker off, which happens after
+the rename rather than before — a rename that failed would otherwise leave a
+tree with nothing in it to say what it was. So a run killed in that one moment
+leaves a marker sitting on a real target directory. That is not mistaken for an
+abandoned tree, because the marker names the destination it is sitting in, and
+only the marker is cleared.
 
 ## Layout
 

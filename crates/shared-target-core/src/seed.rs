@@ -7,7 +7,7 @@ use filetime::FileTime;
 use walkdir::WalkDir;
 
 use crate::error::{Error, Result};
-use crate::{lock, probe};
+use crate::{lock, probe, staging};
 
 /// Files this size and above under a `deps/` directory keep a shared inode
 /// rather than a copy of their own.
@@ -85,10 +85,7 @@ pub fn seed(opts: &Options) -> Result<Report> {
         return Err(Error::DestinationExists(opts.dest.clone()));
     }
 
-    let staging = opts
-        .staging
-        .clone()
-        .unwrap_or_else(|| default_staging(&opts.dest));
+    let staging = staging_path(opts);
     if staging.exists() {
         return Err(Error::StagingExists(staging));
     }
@@ -129,15 +126,37 @@ pub fn seed(opts: &Options) -> Result<Report> {
     // rewriting under it.
     let locks = lock::acquire(&opts.src)?;
 
+    // Written before the first byte, and after the last refusal: making the
+    // staging directory is the first thing this run leaves behind, and a run
+    // that turns out to be refused must leave nothing — or the next attempt,
+    // made once the build it collided with has finished, finds its own staging
+    // path already taken.
+    //
+    // Held for as long as the writing lasts. The tree about to be built is the
+    // expensive thing here, and the name it is built under is the caller's — so
+    // what says it exists, and says whether anything is still writing it, has
+    // to be inside it. See [`crate::staging`].
+    //
+    // Both paths are resolved before being recorded. What the marker is read
+    // for is deciding whether a tree has landed, and a relative `--dest` means
+    // nothing to a reader standing somewhere else.
+    let marked = staging::mark(&staging, &resolve(&opts.src)?, &resolve(&opts.dest)?)?;
+
     // A failure leaves the staged tree where it is. It is named so that nothing
     // reads it, and deleting on the way out of an error is how the one run that
-    // could have been inspected stops being inspectable.
+    // could have been inspected stops being inspectable. What it is not is
+    // forgotten: it keeps its marker, and `prune` is how it is found again.
     let mut report = fill(&opts.src, &staging, strategy, opts.min_shared_size)?;
     report.build_locks_held = locks.held().len();
     drop(locks);
 
     fs::rename(&staging, &opts.dest)
         .map_err(Error::io("renaming the staged tree to", &opts.dest))?;
+
+    // After the rename, and from where the tree now is. Removing it first would
+    // leave a rename that fails holding a tree with nothing in it to say what it
+    // is.
+    marked.release(&opts.dest)?;
     report.dest = opts.dest.clone();
     Ok(report)
 }
@@ -369,6 +388,17 @@ fn parent_of(path: &Path) -> Result<&Path> {
         Some(parent) => Ok(parent),
         None => Err(Error::DestinationHasNoParent(path.to_path_buf())),
     }
+}
+
+/// Where the tree is built before it is renamed into place: what the caller
+/// asked for, or a sibling of the destination.
+///
+/// Public because a run that fails leaves something at this path, and a caller
+/// that wants to say so afterwards has to be able to name it.
+pub fn staging_path(opts: &Options) -> PathBuf {
+    opts.staging
+        .clone()
+        .unwrap_or_else(|| default_staging(&opts.dest))
 }
 
 fn default_staging(dest: &Path) -> PathBuf {

@@ -356,6 +356,37 @@ fn a_running_build_stops_the_seeding() {
     assert_eq!(report.build_locks_held, 1);
 }
 
+/// A refusal has to leave nothing at all. The staged tree carries a marker now,
+/// and writing one means making the directory it goes in — so a refusal that
+/// happened after that point would leave the next attempt, made once the build
+/// it collided with has finished, refusing for a second reason of its own
+/// making.
+#[test]
+#[cfg(unix)]
+fn a_refused_seeding_leaves_nothing_of_its_own_behind() {
+    use rustix::fs::{FlockOperation, flock};
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let src = dir.path().join("src-target");
+    fixture(&src).expect("the fixture");
+
+    let build = fs::File::open(src.join("debug/.cargo-lock")).expect("the lock file");
+    flock(&build, FlockOperation::NonBlockingLockExclusive).expect("holding the lock");
+
+    let refused = seed(&Options::new(&src, dir.path().join("wt/target")));
+    assert!(
+        matches!(refused, Err(Error::SourceBusy { .. })),
+        "got {refused:?}"
+    );
+    assert!(
+        !dir.path().join("wt/target.partial").exists(),
+        "a refusal should not have staged anything"
+    );
+
+    drop(build);
+    seed(&Options::new(&src, dir.path().join("wt/target"))).expect("the second attempt");
+}
+
 /// A build given a target triple nests its profile one level deeper, and the
 /// lock goes with it. Looked for in both places, or a cross-compiled tree would
 /// be read with nothing held and nothing said.
